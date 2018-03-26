@@ -1,13 +1,13 @@
-#encoding: utf-8
+# coding: utf-8
 import hashlib
 import asyncio
 
 import pandas as pd
 import numpy as np
 
-import settings
-api_Key=settings.okcoinAPI['api_Key']
-secret_Key = settings.okcoinAPI['secret_Key']
+from ..settings import okcoinAPI
+api_Key = okcoinAPI['api_Key']
+secret_Key = okcoinAPI['secret_Key']
 
 
 #business

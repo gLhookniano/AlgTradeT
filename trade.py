@@ -1,23 +1,51 @@
-#encoding: utf-8
+# coding: utf-8
 import numpy as np
 import pandas as pd
 import talib as ta
 
 
 def ATR(df0, window=14):
+    """ 
+    ATR(df0, window=14)
+    
+    return: <float>list
+    """
     return ta.ATR(np.array(df0.highest), np.array(df0.lowest), np.array(df0.close), timeperiod=window)
     
-def BB(df0, window=14, flag_dev_u=2, flag_dev_d=2, flag_dat_obj='close', flag_ma='sma'):
+    
+def BB(df0, window=14, flag_dev_u=2, flag_dev_d=2, flag_source='close', flag_ma='sma'):
     if flag_ma=='sma':
         matype=0
     if flag_ma=='ema':
         matype=1
-    UB, MB, DB = ta.BBANDS(np.array(df0[flag_dat_obj]), timeperiod=window, matype=matype, nbdevup=flag_dev_u, nbdevdn=flag_dev_d)
+    UB, MB, DB = ta.BBANDS(np.array(df0[flag_source]), timeperiod=window, matype=matype, nbdevup=flag_dev_u, nbdevdn=flag_dev_d)
     return UB, MB, DB
-
+    
+def BBX(df0, U_window=42, M_window=30, D_window=21, flag_dev_u=2, flag_dev_d=2, flag_source='close', flag_ma='sma'):
+    """
+    BB trendCapture
+    """
+    if flag_ma=='sma':
+        matype=0
+    if flag_ma=='ema':
+        matype=1
+    U_UB, U_MB, U_DB = ta.BBANDS(np.array(df0[flag_source]), timeperiod=U_window, matype=matype, nbdevup=flag_dev_u, nbdevdn=flag_dev_d)
+    M_UB, M_MB, M_DB = ta.BBANDS(np.array(df0[flag_source]), timeperiod=M_window, matype=matype, nbdevup=flag_dev_u, nbdevdn=flag_dev_d)
+    D_UB, D_MB, D_DB = ta.BBANDS(np.array(df0[flag_source]), timeperiod=D_window, matype=matype, nbdevup=flag_dev_u, nbdevdn=flag_dev_d)
+    return U_UB, M_MB, D_DB
+    
+    
 def DC(df0, window=20):
     U = df0.highest.rolling(window=window).max()
     D = df0.lowest.rolling(window=window).min()
+    return np.array(U), np.array(D)
+    
+def DCX(df0, U_window=42, D_window=21):
+    """
+    DC trendCapture
+    """
+    U = df0.highest.rolling(window=U_window).max()
+    D = df0.lowest.rolling(window=D_window).min()
     return np.array(U), np.array(D)
 
 def EMA(df0, window=14, flag_dat_obj='close'):

@@ -1,21 +1,193 @@
-#encoding: utf-8
+# coding: utf-8
 import numpy as np
-import trade
 import talib as ta
 
-import settings
-MAKER_COST=settings.evaluete["maker_cost"]
-TAKER_COST=settings.evaluete["taker_cost"]
-IMPACT=settings.evaluete["impact"]
-LEVER=settings.evaluete["lever"]
+from settings import evaluete
+MAKER_COST = evaluete["maker_cost"]
+TAKER_COST = evaluete["taker_cost"]
+IMPACT = evaluete["impact"]
+LEVER = evaluete["lever"]
+MAX_POSITION = evaluete["max_position"]
+STOP_EARN = evaluete["stop_earn"]
+STOP_LOSS = evaluete["stop_loss"]
 
-#SLtype 0 : short
-#       1 : long
-#flag_rate 0 : return rate
-#          1 : return price
-#flag_mt 0 : taker
-#        1 : maker
+'''
+eva_weight={
+-3:[-0.15, -0.05, -0.1, -0.3, -0.7],
+-1:-0.05,
+0:0,
+1:0.05,
+3:[0.7, 0.3, 0.1, 0.05, 0.15],
+}
+'''
+class tatic_eva(object):
+    """
+    tatic_eva(source,  eva, eva_weight=None, flag_riskcontrol=False, flag_riskcontrol_type=0)
+    
+    flag_riskcontrol 0: disable stop_earn and stop_loss
+                     1: enable stop_earn and stop_loss
+    flag_riskcontrol_type 0: riskControl type use percent
+                          1: riskControl type use atrN
+                
+    return: profit_list
+    """
+    def __init__(self, df0, eva, eva_weight=None, flag_riskcontrol=False,  flag_riskcontrol_type=0):
+        self.l_profit=[]
+        self.eva=eva
+        self.eva_weight = eva_weight
+        self.source = np.array(df0.close)
+        self.high = np.array(df0.highest)
+        self.low = np.array(df0.lowest)
+        
+        self.flag_riskcontrol = flag_riskcontrol
+        self.flag_riskcontrol_type = flag_riskcontrol_type
+
+    def get_pst_ctl(self, now_eva, pre_eva, eva_weight, evaw_col):
+        i,j,pc=int(now_eva),int(pre_eva),0
+        if i in eva_weight.keys() and j in eva_weight.keys():#evaw_has_key
+            pc = eva_weight[i][evaw_col[j]]
+        else:#evaw_not_has_key
+            pc=0
+        return pc
+
+    def get_evaw_col(self, eva_weight):
+        i,j=0,0
+        evaw_col={}
+        for i in eva_weight.keys():
+            evaw_col[i]=j
+            j+=1
+        return evaw_col
+        
+    def do(self):
+        return self.loop_time()
+        
+    def loop_time(self):
+        evaw_col = self.get_evaw_col(self.eva_weight)
+        leva = len(self.eva)
+    
+        for i in range(leva):
+            if i==750:
+                a=1
+            if i==0 or i==leva-1:#ig_first_time || ig_end_time
+                self.l_profit.append(0)
+                continue
+            
+            if self.eva[i]>0:
+                eva_profit = self.loop_eva_long(i, leva, evaw_col)
+                self.l_profit.append(np.sum(eva_profit))
+            elif self.eva[i]<0:
+                eva_profit = self.loop_eva_short(i, leva, evaw_col)
+                self.l_profit.append(np.sum(eva_profit))
+            else:
+                self.l_profit.append(0)
+        return self.l_profit
+        
+    def loop_eva_long(self, time, leva, evaw_col):
+        """
+        loop_eva_long(self, time, leva, evaw_col)
+        time : now time
+        """
+        i_pc = 0
+        eva_profit = []
+        open_price = self.source[time]
+        
+        for j in range(time+1, leva):
+            j_pc = self.get_pst_ctl(self.eva[j], self.eva[j-1], self.eva_weight, evaw_col)#get position control value
+            profit = get_profit(open_price, self.source[j], 1, flag_rate=True)
+                
+            if j_pc==-1 or j_pc+i_pc<0 or j==leva-1 or (self.riskControl(profit, open_price, j) and self.flag_riskcontrol):#full_out_long || L_min_position || end_bar || (stop_earn || stop_loss)
+                eva_profit.append(profit*i_pc)
+                break
+                
+            elif j_pc==1 or j_pc+i_pc>=MAX_POSITION:#full_in_long || EB_max_position
+                j_pc=MAX_POSITION-i_pc
+                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                i_pc=MAX_POSITION
+                
+            elif j_pc<0:#out_long
+                eva_profit.append(profit*-j_pc)
+                i_pc+=j_pc
+                    
+            elif j_pc>0:#in_long
+                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                i_pc+=j_pc
+        return eva_profit
+        
+    def loop_eva_short(self, time, leva, evaw_col):
+        """
+        loop_eva_short(self, time, leva, evaw_col)
+        time : now time
+        """
+        i_pc = 0
+        eva_profit = []
+        open_price = self.source[time]
+        
+        for j in range(time+1, leva):
+            j_pc = self.get_pst_ctl(self.eva[j], self.eva[j-1], self.eva_weight, evaw_col)
+            profit = get_profit(open_price, self.source[j], 0, flag_rate=True)
+            
+            if j_pc==1 or j_pc+i_pc>0 or j==leva-1 or (self.riskControl(profit, open_price, j) and self.flag_riskcontrol):#full_out_short || L_min_position || end_bar || (stop_earn || stop_loss)
+                eva_profit.append(profit*-i_pc)
+                break
+                
+            elif j_pc==-1 or -(j_pc+i_pc)>=MAX_POSITION:#full_in_short || EB_max_position
+                j_pc=-MAX_POSITION-i_pc
+                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                i_pc=-MAX_POSITION
+                
+            elif j_pc>0:#out_short
+                eva_profit.append(profit*j_pc)
+                i_pc+=j_pc
+                
+            elif j_pc<0:#in_short
+                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                i_pc+=j_pc
+        return eva_profit
+        
+    def riskControl(self, profit, open_price, time):
+        """
+        0 : percent
+        1 : atrN
+        """
+        if self.flag_riskcontrol_type==0:
+            return self.riskControl_percent(profit)
+        if self.flag_riskcontrol_type==1:
+            return self.riskControl_atrN(open_price, time)
+            
+    def riskControl_percent(self, profit):
+        if profit >= STOP_EARN or profit <= STOP_LOSS:
+            return True
+        else:
+            return False
+    def riskControl_atrN(self, open_price, time, window=14, n_earn=2.5, n_loss=-.5):
+        """
+        riskControl_atrN(profit, open_price, window=14, n_earn=2.5, n_loss=.5)
+        
+        if n_earn*now_atr < now_close-open then stop_earn; default 2.5
+        if n_loss*now_atr > open-now_close then stop_loss; default 0.5
+
+        return: float
+        """
+        if time<window:
+            return False
+        atr = ta.ATR(self.high[time-window:time+1], self.low[time-window:time+1], self.source[time-window:time+1], timeperiod=window)
+        if atr[-1]*n_earn < (self.source[time] - open_price) or atr[-1]*n_loss > (open_price - self.source[time]):
+            return True
+        return False
+
 def get_profit(open_price, close_price, SLtype, maker_cost=MAKER_COST, taker_cost=TAKER_COST, impact=IMPACT, lever=LEVER, flag_rate=1, flag_mt=0):
+    """
+    get_profit(open_price, close_price, SLtype, maker_cost=MAKER_COST, taker_cost=TAKER_COST, impact=IMPACT, lever=LEVER, flag_rate=1, flag_mt=0)
+    
+    SLtype 0 : short
+            1 : long
+    flag_rate 0 : return rate
+            1 : return price
+    flag_mt 0 : taker
+            1 : maker
+            
+    return: profit
+    """
     cost, profit, open_cost=0,0,0
 
     if not flag_mt:
@@ -72,14 +244,14 @@ def get_alpha(tatic_profit,  benchmark_profit, riskfree_profit=0.01):
 
 
 def get_maxDrawDown(pure_profit, window=90):
-    l_maxDD = []
+    STOP_LOSSDD = []
     min, max, maxDD =0,0,0
     i=0
     for i in range(len(pure_profit)-window):
         min = np.min(pure_profit[i:i+window])
         max = np.max(pure_profit[i:i+window])
-        l_maxDD.append(1-min/max)
-    maxDD = np.max(l_maxDD)
+        STOP_LOSSDD.append(1-min/max)
+    maxDD = np.max(STOP_LOSSDD)
     return maxDD
 
     
@@ -128,9 +300,11 @@ def get_winLose_analysis(l_profit):
     return [trade_time, win_time, lose_time, victories, winEarn_rate, loseLoss_rate, odds, max_win_time, max_lose_time]
 
 
-#flag_rtn 0: print all detail
-#         1: return ditail
 def get_backtest(profit, benchmark_profit, riskfree_profit=0.01, drawdown_window=90, flag_rtn=0):
+    """
+    flag_rtn 0: print all detail
+            1: return ditail
+    """
     profit = np.array(profit)
     benchmark_profit = np.array(benchmark_profit)
 
@@ -168,124 +342,3 @@ def get_backtest(profit, benchmark_profit, riskfree_profit=0.01, drawdown_window
         print('odds:                 ', odds)
     else:
         return [positive_profit, negetive_profit, pure_profit, beta, alpha, maxDrawDown, sharpe, sortino, trade_time, win_time, lose_time, victories, winEarn_rate, loseLoss_rate, odds, max_win_time, max_lose_time]
-    
-    
-def get_evaw_col(eva_weight):
-    i,j=0,0
-    evaw_col={}
-    for i in eva_weight.keys():
-        evaw_col[i]=j
-        j+=1
-    return evaw_col
-
-def get_pst_ctl(now_eva, pre_eva, eva_weight, evaw_col):
-    i,j=int(now_eva),int(pre_eva)
-    pc=0
-    
-    if i in eva_weight.keys() and j in eva_weight.keys():#evaw_has_key
-        pc = eva_weight[i][evaw_col[j]]
-    else:#evaw_not_has_key
-        pc=0
-    return pc
-    
-'''
-eva_weight={
--3:[-0.15, -0.05, -0.1, -0.3, -0.7],
--1:-0.05,
-0:0,
-1:0.05,
-3:[0.7, 0.3, 0.1, 0.05, 0.15],
-'max':1,
-'stop_earn':0.1,
-'stop_loss':-0.05,
-'min_earn':0.001
-}
-'''
-#flag_el_max 0: disable stop_earn and stop_loss
-#            1: enable stop_earn and stop_loss
-#flag_side_pst 0: use one-side trade
-#              1: multi-side trade
-#flag_e_min 0: limit min earn and ignore that trade
-#           1: no limit
-def tatic_eva(source,  eva, eva_weight=None, max_pst_num=1,  flag_el_max=False, flag_side_pst=False, flag_e_min=False):
-    i,j,k,leva=0,0,0,len(eva)
-    e_max=eva_weight.pop('stop_earn')#get_value and del_object_item
-    l_max=eva_weight.pop('stop_loss')
-    pc_max=eva_weight.pop('max')
-    e_min=eva_weight.pop('min_earn')
-    evaw_col = get_evaw_col(eva_weight)
-    profit, i_pc, j_pc, now_price=0,0,0,0
-    l_profit=[]
-    pc_profit=[]
-    
-    for i in range(leva):
-        if k>max_pst_num-1 and flag_side_pst:
-            k-=1
-            continue
-        
-        if i==0 or i==leva-1:#ig_first_eva || ig_end_eva
-            l_profit.append(0)
-            continue
-        i_pc=0
-        now_price=source[i]
-        pc_profit=[]
-        if eva[i]>0:
-            for j in range(i+1, leva):
-                k+=1
-                if j==leva-1:#is_end_eva
-                    l_profit.append(0)
-                    continue
-                j_pc = get_pst_ctl(eva[j], eva[j-1], eva_weight, evaw_col)#get position control value
-                profit = get_profit(now_price, source[j], 1, flag_rate=True)
-                
-                if j_pc==-1 or j_pc+i_pc<0 or j==leva-1 or (profit>e_max or profit<l_max and flag_el_max):#full_out_long || L_min_position || end_bar || stop_earn || stop_loss
-                    pc_profit.append(profit*i_pc)
-                    l_profit.append(np.sum(pc_profit))
-                    break
-                
-                elif j_pc==1 or j_pc+i_pc>=pc_max:#full_in_long || EB_max_position
-                    j_pc=pc_max-i_pc
-                    now_price = (i_pc*now_price + j_pc*source[j]) / (i_pc+j_pc)
-                    i_pc=pc_max
-                
-                elif j_pc<0:#out_long
-                    if profit>0 and profit<=e_min and flag_e_min:#ig_earn_less
-                        continue
-                    pc_profit.append(profit*-j_pc)
-                    i_pc+=j_pc
-                    
-                elif j_pc>0:#in_long
-                    now_price = (i_pc*now_price + j_pc*source[j]) / (i_pc+j_pc)
-                    i_pc+=j_pc
-
-        elif eva[i]<0:
-            for j in range(i+1, leva):
-                k+=1
-                if j==leva-1:#is_end_eva
-                    l_profit.append(0)
-                    continue
-                j_pc = get_pst_ctl(eva[j], eva[j-1], eva_weight, evaw_col)
-                profit = get_profit(now_price, source[j], 0, flag_rate=True)
-                
-                if j_pc==1 or j_pc+i_pc>0 or j==leva-1 or (profit>e_max or profit<l_max and flag_el_max):#full_out_short || L_min_position || end_bar || stop_earn || stop_loss
-                    pc_profit.append(profit*-i_pc)
-                    l_profit.append(np.sum(pc_profit))
-                    break
-                    
-                elif j_pc==-1 or -(j_pc+i_pc)>=pc_max:#full_in_short || EB_max_position
-                    j_pc=-pc_max-i_pc
-                    now_price = (i_pc*now_price + j_pc*source[j]) / (i_pc+j_pc)
-                    i_pc=-pc_max
-                
-                elif j_pc>0:#out_short
-                    if profit>0 and profit<=e_min and flag_e_min:#ig_earn_less
-                        continue
-                    pc_profit.append(profit*j_pc)
-                    i_pc+=j_pc
-                    
-                elif j_pc<0:#in_short
-                    now_price = (i_pc*now_price + j_pc*source[j]) / (i_pc+j_pc)
-                    i_pc+=j_pc
-        else:
-            l_profit.append(0)
-    return np.array(l_profit)

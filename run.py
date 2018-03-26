@@ -1,4 +1,4 @@
-#coding:utf-8
+# coding:utf-8
 import glob
 import numpy as np
 import pandas as pd
@@ -55,21 +55,21 @@ def eva_SRSI_BB(df0, *args):
     u, m, d = trade.BB(df0, *args[1])
     
     uu = np.sign(np.array(df0.highest) - u)
-    uu[uu<0]=0
+    uu[uu!=-1]=0
     dd = np.sign(np.array(df0.lowest) - d)
-    dd[dd>0]=0
+    dd[dd!=1]=0
     eva = np.nan_to_num(np.sign(K-D) + np.sign(uu+dd)*2)
     return eva
 
-def eva_SRSI_ATR(df0, atrU=0.8, atrD=0.3, *args):
-    if *args[1][1] and *args[1][2]:#new atrU and new atrD
-        atrU=*args[1][1]
-        atrD=*args[1][2]
+def eva_SRSI_ATR(df0, *args):
+    atrU = args[1][1]
+    atrD = args[1][2]
+        
     k, d = trade.SRSI(df0, *args[0])
-    atr = trade.ATR(df0, *args[1])
+    atr = trade.ATR(df0, args[1][0])
     atr[atr>=atrU]=1
     atr[atr<=atrD]=-1
-    atr[atr<atrU and atr>atrD]=0
+    atr[np.abs(atr)!=1]=0
     
     eva = np.nan_to_num(np.sign(k-d) + np.sign(atr)*2)
     return eva
@@ -85,12 +85,15 @@ def eva_SRSI_DC(df0, *args):
     eva = np.nan_to_num(np.sign(K-D) + np.sign(uu+dd)*2)
     return eva
 
-def eva_KD_WR(df0, wrU=-20, wrD=-80, *args):
+def eva_KD_WR(df0, *args):
+    wrU=args[1][1]
+    wrD=args[1][2]
+
     K, D = trade.KD(df0, *args[0])
-    wr = trade.WR(df0, *args[1])
+    wr = trade.WR(df0, args[1][0])
     wr[wr>=wrU]=1
     wr[wr<=wrD]=-1
-    wr[wr<wrU and wr>wrD]=0
+    wr[np.abs(wr)!=1]=0
     
     eva = np.nan_to_num(np.sign(K-D) + np.sign(wr)*2)
     return eva
@@ -105,7 +108,7 @@ def eva3_SAR_MACD_histSign(df0, *args):
     
 def eva_KD_MATRIX(df0, *args):
     K, D = trade.KD(df0, *args[0])
-    trix, matrix = trade.MATRIX()
+    trix, matrix = trade.MATRIX(df0, *args[1])
     
     eva = np.nan_to_num(np.sign(K-D) + np.sign(matrix - trix)*2)
     return eva
@@ -136,7 +139,9 @@ def test(flag_type="SRSI_MACD_histSign"):
         eva =  eva_KD_MATRIX(df4, argKD, argMATRIX)
         use_eva_weight = deepcopy(eva_weight)
         
-    profit = evaluete.tatic_eva(source, eva=eva, eva_weight=use_eva_weight)
+    #profit = evaluete.tatic_eva(source, eva=eva, eva_weight=use_eva_weight)
+    profit = evaluete.tatic_eva(df4, eva, use_eva_weight, 1, 1).do()
+    
     pure_profit = evaluete.get_pure_profit(profit)
     ben_profit = evaluete.get_benchmark_profit(source, np.array(df4.close.shift(1)))
     evaluete.get_backtest(profit, ben_profit, RF_PROFIT, DRAWDOWN_WINDOW)

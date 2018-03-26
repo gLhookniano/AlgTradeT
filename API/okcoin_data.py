@@ -1,3 +1,4 @@
+# coding:utf-8
 import time
 import json
 import re
@@ -8,10 +9,10 @@ import asyncio
 import websockets
 import pandas as pd
 
-import settings
-LOC_DUMP=setting.okcoinAPI['loc_dump_data']
-URL=setting.okcoinAPI['url']
-URL_SPOT=setting.okcoinAPI['url_spot']
+from ..settings import okcoinAPI
+LOC_DUMP = okcoinAPI['loc_dump_data']
+URL = okcoinAPI['url']
+URL_SPOT = okcoinAPI['url_spot']
 
 kline_columns=['time', 'open', 'highest', 'lowest', 'close', 'volume', 'amount']
 depth_asks_columns=['asks_Price', 'asks_Amount(Contract)', 'asks_Amount(Coin)','asks_Cumulant(Coin)','asks_Cumulant(Contract)']
