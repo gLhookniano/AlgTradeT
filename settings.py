@@ -12,6 +12,7 @@ evaluete=dict(
 maker_cost=0.0003,
 taker_cost=0.0005,
 impact=0.0001,
+slide=0.0001,
 lever=10,
 max_position=1,
 stop_earn=0.05,
@@ -20,7 +21,7 @@ stop_loss=-0.05,
 
 run=dict(
 loc_get_data=r"./DATA/",
-eva3_weight={
+eva3_weight={#  -6    -4     -2   0    2    4    6   #pre_eva
             -6:[-.2, -.15,  -.1, -.2, -.3, -.6, -.9],#-1-2-3
             -4:[-.1, -.05, -.05, -.15, -.2, -.3, -.5],#+1-2-3
             -2:[-.05, -.05,  -.05, -.1, -.1, -.3, -.5],#-1+2-3
@@ -29,15 +30,15 @@ eva3_weight={
             4:[.5, .3, .2, .15, .05, .05, .1],#-1+2+3
             6:[.9, .6, .3, .2,  .1, .15, .2],#1+2+3
             },
-eva_weight={
+eva_weight={#    -3     -1     1    3   #pre_eva
             -3:[-0.2, -0.05, -0.3, -0.7],
             -1:[-0.1, -0.05, -0.2, -0.5],
-            1:[0.5, 0.2, 0.05, 0.1],
-            3:[0.7, 0.3, 0.05, 0.2],
+            1:[  0.5,   0.2, 0.05,  0.1],
+            3:[  0.7,   0.3, 0.05,  0.2],
             },
 riskfreeProfit=0.01,
 drawdown_window=60,
-RUN_TYPE="KD_MATRIX",#SRSI_MACD_histSign, SRSI_BB, SRSI_ATR*, SRSI_DC, KD_WR, SAR_MACD*, KD_MATRIX
+RUN_TYPE="SRSI_BB",#SRSI_MACD_histSign, SRSI_BB, SRSI_ATR*, SRSI_DC, KD_WR, SAR_MACD_histSign, KD_MATRIX
 argSRSI=(9,5,3),    #window, win_k, win_d
 argMACD=(12,26,9),  #window_fast, window_slow, window_sign
 argBB=(4,2,2),      #window, nbdevup, nbdevdn

@@ -6,34 +6,30 @@ from settings import evaluete
 MAKER_COST = evaluete["maker_cost"]
 TAKER_COST = evaluete["taker_cost"]
 IMPACT = evaluete["impact"]
+SLIDE = evaluete["slide"]
 LEVER = evaluete["lever"]
 MAX_POSITION = evaluete["max_position"]
 STOP_EARN = evaluete["stop_earn"]
 STOP_LOSS = evaluete["stop_loss"]
 
-'''
-eva_weight={
--3:[-0.15, -0.05, -0.1, -0.3, -0.7],
--1:-0.05,
-0:0,
-1:0.05,
-3:[0.7, 0.3, 0.1, 0.05, 0.15],
-}
-'''
+
 class tatic_eva(object):
     """
-    tatic_eva(source,  eva, eva_weight=None, flag_riskcontrol=False, flag_riskcontrol_type=0)
+    tatic_eva(self, df0, eva, eva4open, eva_weight=None, flag_riskcontrol=False,  flag_riskcontrol_type=0)
     
     flag_riskcontrol 0: disable stop_earn and stop_loss
                      1: enable stop_earn and stop_loss
-    flag_riskcontrol_type 0: riskControl type use percent
-                          1: riskControl type use atrN
+    flag_riskcontrol_type 0: use const percent
+                          1: use atrN
+                          2: use sar sign
+                          3: use sar follow
                 
-    return: profit_list
+    return: <float>list  (which is profit list)
     """
-    def __init__(self, df0, eva, eva_weight=None, flag_riskcontrol=False,  flag_riskcontrol_type=0):
+    def __init__(self, df0, eva, eva4open, eva_weight=None, flag_riskcontrol=False,  flag_riskcontrol_type=0):
         self.l_profit=[]
         self.eva=eva
+        self.eva4open = eva4open
         self.eva_weight = eva_weight
         self.source = np.array(df0.close)
         self.high = np.array(df0.highest)
@@ -41,6 +37,7 @@ class tatic_eva(object):
         
         self.flag_riskcontrol = flag_riskcontrol
         self.flag_riskcontrol_type = flag_riskcontrol_type
+        self.riskControl_profit = []
 
     def get_pst_ctl(self, now_eva, pre_eva, eva_weight, evaw_col):
         i,j,pc=int(now_eva),int(pre_eva),0
@@ -51,12 +48,59 @@ class tatic_eva(object):
         return pc
 
     def get_evaw_col(self, eva_weight):
+        """
+        eva_weight={#-3     -1     1    3
+                -3:[-0.2, -0.05, -0.3, -0.7],
+                -1:[-0.1, -0.05, -0.2, -0.5],
+                1:[0.5, 0.2, 0.05, 0.1],
+                3:[0.7, 0.3, 0.05, 0.2],
+                }
+        """
         i,j=0,0
         evaw_col={}
         for i in eva_weight.keys():
             evaw_col[i]=j
             j+=1
         return evaw_col
+        
+    def get_open_price(self, time, SLtype):
+        """
+        get_open_price(self, time)
+        
+        return: <float>
+        """
+        if SLtype==1:
+            price = self.source[time]*(1+SLIDE)
+        if SLtype==0:
+            price = self.source[time]*(1-SLIDE)
+        return price
+        
+    def get_close_price(self, time):
+        """
+        get_close_price(self, time)
+        
+        return: <float>
+        """
+        if SLtype==1:
+            price = self.source[time]*(1-SLIDE)
+        if SLtype==0:
+            price = self.source[time]*(1+SLIDE)
+        return price
+        
+    def get_open_sign(self, time):
+        """
+        get_open_sign(self, time)
+             
+        return 0: goto short condition
+               1: goto long condition
+               -1: goto zero condition
+        """
+        if self.eva4open[time]==-1:
+            return 0
+        if self.eva4open[time]==1:
+            return 1
+        else:
+            return -1
         
     def do(self):
         return self.loop_time()
@@ -66,19 +110,18 @@ class tatic_eva(object):
         leva = len(self.eva)
     
         for i in range(leva):
-            if i==750:
-                a=1
             if i==0 or i==leva-1:#ig_first_time || ig_end_time
                 self.l_profit.append(0)
                 continue
             
-            if self.eva[i]>0:
+            open_sign = self.get_open_sign(i)
+            if open_sign==1:
                 eva_profit = self.loop_eva_long(i, leva, evaw_col)
                 self.l_profit.append(np.sum(eva_profit))
-            elif self.eva[i]<0:
+            elif open_sign==0:
                 eva_profit = self.loop_eva_short(i, leva, evaw_col)
                 self.l_profit.append(np.sum(eva_profit))
-            else:
+            elif open_sign==-1:
                 self.l_profit.append(0)
         return self.l_profit
         
@@ -89,19 +132,19 @@ class tatic_eva(object):
         """
         i_pc = 0
         eva_profit = []
-        open_price = self.source[time]
+        open_price = self.get_open_price(time)
         
         for j in range(time+1, leva):
             j_pc = self.get_pst_ctl(self.eva[j], self.eva[j-1], self.eva_weight, evaw_col)#get position control value
-            profit = get_profit(open_price, self.source[j], 1, flag_rate=True)
+            profit = get_profit(open_price, self.get_close_price(j), 1, flag_rate=True)
                 
-            if j_pc==-1 or j_pc+i_pc<0 or j==leva-1 or (self.riskControl(profit, open_price, j) and self.flag_riskcontrol):#full_out_long || L_min_position || end_bar || (stop_earn || stop_loss)
+            if j_pc==-1 or j_pc+i_pc<0 or j==leva-1 or (self.riskControl(profit, open_price, time, j, 1) and self.flag_riskcontrol):#full_out_long || L_min_position || end_bar || (stop_earn || stop_loss && flag_stop)
                 eva_profit.append(profit*i_pc)
                 break
                 
             elif j_pc==1 or j_pc+i_pc>=MAX_POSITION:#full_in_long || EB_max_position
                 j_pc=MAX_POSITION-i_pc
-                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                open_price = (i_pc*open_price + j_pc*self.get_open_price(j)) / (i_pc+j_pc)
                 i_pc=MAX_POSITION
                 
             elif j_pc<0:#out_long
@@ -109,7 +152,7 @@ class tatic_eva(object):
                 i_pc+=j_pc
                     
             elif j_pc>0:#in_long
-                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                open_price = (i_pc*open_price + j_pc*self.get_open_price(j)) / (i_pc+j_pc)
                 i_pc+=j_pc
         return eva_profit
         
@@ -120,19 +163,19 @@ class tatic_eva(object):
         """
         i_pc = 0
         eva_profit = []
-        open_price = self.source[time]
+        open_price = self.get_open_price(time)
         
         for j in range(time+1, leva):
             j_pc = self.get_pst_ctl(self.eva[j], self.eva[j-1], self.eva_weight, evaw_col)
-            profit = get_profit(open_price, self.source[j], 0, flag_rate=True)
+            profit = get_profit(open_price, self.get_close_price(j), 0, flag_rate=True)
             
-            if j_pc==1 or j_pc+i_pc>0 or j==leva-1 or (self.riskControl(profit, open_price, j) and self.flag_riskcontrol):#full_out_short || L_min_position || end_bar || (stop_earn || stop_loss)
+            if j_pc==1 or j_pc+i_pc>0 or j==leva-1 or (self.riskControl(profit, open_price, time, j, 0) and self.flag_riskcontrol):#full_out_short || L_min_position || end_bar || (stop_earn || stop_loss && flag_stop)
                 eva_profit.append(profit*-i_pc)
                 break
                 
             elif j_pc==-1 or -(j_pc+i_pc)>=MAX_POSITION:#full_in_short || EB_max_position
                 j_pc=-MAX_POSITION-i_pc
-                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                open_price = (i_pc*open_price + j_pc*self.get_open_price(j)) / (i_pc+j_pc)
                 i_pc=-MAX_POSITION
                 
             elif j_pc>0:#out_short
@@ -140,28 +183,49 @@ class tatic_eva(object):
                 i_pc+=j_pc
                 
             elif j_pc<0:#in_short
-                open_price = (i_pc*open_price + j_pc*self.source[j]) / (i_pc+j_pc)
+                open_price = (i_pc*open_price + j_pc*self.get_open_price(j)) / (i_pc+j_pc)
                 i_pc+=j_pc
         return eva_profit
         
-    def riskControl(self, profit, open_price, time):
+    def riskControl(self, profit, open_price, open_time, time, SLtype):
         """
-        0 : percent
-        1 : atrN
+        riskControl(self, profit, open_price, open_time, time, type)
+        
+        self.flag_riskcontrol_type:
+            0 : percent
+            1 : atrN
+            2 : sar
+            3 : sarx
         """
-        if self.flag_riskcontrol_type==0:
-            return self.riskControl_percent(profit)
-        if self.flag_riskcontrol_type==1:
-            return self.riskControl_atrN(open_price, time)
+        l=[]
+        if 0 in self.flag_riskcontrol_type:
+            l.append(self.riskControl_percent(profit))
+        if 1 in self.flag_riskcontrol_type:
+            l.append(self.riskControl_atrN(open_price, time, SLtype))
+        if 2 in self.flag_riskcontrol_type:
+            l.append(self.riskControl_sar(open_price, time, SLtype))
+        if 3 in self.flag_riskcontrol_type:
+            l.append(self.riskControl_sarx(open_price, open_time, time, SLtype))
+        if 4 in self.flag_riskcontrol_type:
+            l.append(self.riskControl_drawdown(profit, open_time, time))
+        
+        if True in l:
+            return True
+        else:
+            return False
             
     def riskControl_percent(self, profit):
+        """
+        use simple const percent
+        """
         if profit >= STOP_EARN or profit <= STOP_LOSS:
             return True
         else:
             return False
-    def riskControl_atrN(self, open_price, time, window=14, n_earn=2.5, n_loss=-.5):
+    def riskControl_atrN(self, open_price, time, SLtype, window=14, n_earn=2.5, n_loss=.5):
         """
         riskControl_atrN(profit, open_price, window=14, n_earn=2.5, n_loss=.5)
+        
         
         if n_earn*now_atr < now_close-open then stop_earn; default 2.5
         if n_loss*now_atr > open-now_close then stop_loss; default 0.5
@@ -171,10 +235,67 @@ class tatic_eva(object):
         if time<window:
             return False
         atr = ta.ATR(self.high[time-window:time+1], self.low[time-window:time+1], self.source[time-window:time+1], timeperiod=window)
-        if atr[-1]*n_earn < (self.source[time] - open_price) or atr[-1]*n_loss > (open_price - self.source[time]):
+        if SLtype:
+            if atr[-1]*n_earn < (self.source[time] - open_price) or atr[-1]*n_loss > (open_price - self.source[time]):
+                return True
+            else:
+                return False
+        elif not SLtype:
+            if atr[-1]*n_earn < (open_price - self.source[time]) or atr[-1]*n_loss > (self.source[time] - open_price):
+                return True
+            else:
+                return False
+    def riskControl_sar(self, open_price, time, SLtype, AF_increse=0.01, AF_max=0.1):
+        """
+        riskControl_sar(self, open_price, time, type, AF_increse=0.01, AF_max=0.1)
+        
+        type 0 : short
+             1 : long
+             
+        return: float
+        """
+        sar = ta.SAR(self.high[:time+1], self.low[:time+1], acceleration=AF_increse, maximum=AF_max)
+        if SLtype==1:
+            if sar[-1]>=0:
+                return False
+            elif sar[-1]<0:
+                return True
+        if SLtype==0:
+            if sar[-1]<=0:
+                return False
+            elif sar[-1]>0:
+                return True
+        return False
+    def riskControl_sarx(self, open_price, open_time, time, SLtype, AF_increse=0.01, AF_max=0.1):
+        """
+        riskControl_sarx(self, open_price, open_time, time, type, AF_increse=0.02, AF_max=0.2)
+        
+        type 0 : short
+             1 : long
+             
+        return: float
+        """
+        if SLtype==1:
+            sarx = ta.SAREXT(self.high[open_time:time+1], self.low[open_time:time+1], startvalue=open_price, offsetonreverse=0, accelerationinitlong=AF_increse, accelerationlong=AF_increse, accelerationmaxlong=AF_max, accelerationinitshort=0, accelerationshort=0, accelerationmaxshort=0)
+            if sarx[-1]>=0:
+                return False
+            elif sarx[-1]<0:
+                return True
+        if SLtype==0:
+            sarx = ta.SAREXT(self.high[:time+1], self.low[:time+1], startvalue=open_price, offsetonreverse=0, accelerationinitlong=0, accelerationlong=0, accelerationmaxlong=AF_max, accelerationinitshort=AF_increse, accelerationshort=AF_increse, accelerationmaxshort=AF_max)
+            if sarx[-1]<=0:
+                return False
+            elif sarx[-1]>0:
+                return True
+        return False
+    def riskControl_drawdown(self, profit, open_time, time, n_drawdown=.5):
+        if open_time == time+1:#ig_first_time
+            self.riskControl_profit=[]
+            return False
+        self.riskControl_profit.append(profit)
+        if self.riskControl_profit[-1]/np.max(self.riskControl_profit)<n_drawdown:
             return True
         return False
-
 def get_profit(open_price, close_price, SLtype, maker_cost=MAKER_COST, taker_cost=TAKER_COST, impact=IMPACT, lever=LEVER, flag_rate=1, flag_mt=0):
     """
     get_profit(open_price, close_price, SLtype, maker_cost=MAKER_COST, taker_cost=TAKER_COST, impact=IMPACT, lever=LEVER, flag_rate=1, flag_mt=0)
@@ -206,7 +327,7 @@ def get_profit(open_price, close_price, SLtype, maker_cost=MAKER_COST, taker_cos
         if not flag_rate:
             return profit*lever
         if flag_rate:
-            open_cost = (open_price)*(1-impact)*(1+cost)
+            open_cost = (open_price)*(1+impact)*(1+cost)
             return profit/open_cost*lever
 
     
@@ -227,8 +348,7 @@ def get_benchmark_profit(source, source_shift_1):
 
     
 def get_beta(tatic_profit, benchmark_profit):
-    m_cov=0
-    cov, var, beta=0,0,0
+    cov, m_cov, var, beta=0,0,0,0
     m_cov = np.cov((tatic_profit, benchmark_profit))
     cov = m_cov[0][1]
     var = np.var(benchmark_profit)

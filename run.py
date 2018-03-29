@@ -54,12 +54,24 @@ def eva_SRSI_BB(df0, *args):
     K, D = trade.SRSI(df0, *args[0])
     u, m, d = trade.BB(df0, *args[1])
     
-    uu = np.sign(np.array(df0.highest) - u)
-    uu[uu!=-1]=0
+    uu = np.sign(u - np.array(df0.highest))
+    uu[uu!=1]=0
     dd = np.sign(np.array(df0.lowest) - d)
-    dd[dd!=1]=0
-    eva = np.nan_to_num(np.sign(K-D) + np.sign(uu+dd)*2)
-    return eva
+    dd[dd!=-1]=0
+    
+    uu_shift = np.append(0, uu[:-1])
+    uuu = uu - uu_shift
+    uuu[uuu!=1]=0
+    
+    dd_shift = np.append(0, dd[:-1])
+    ddd = dd - dd_shift
+    ddd[ddd!=-1]=0
+    
+    eva = np.nan_to_num(np.sign(K-D))
+    #eva = np.nan_to_num(np.sign(list(range(len(u))))*-1)
+    
+    eva4open = np.nan_to_num(uu+dd)
+    return eva, eva4open
 
 def eva_SRSI_ATR(df0, *args):
     atrU = args[1][1]
@@ -101,9 +113,9 @@ def eva_KD_WR(df0, *args):
 def eva3_SAR_MACD_histSign(df0, *args):
     sar = trade.SAR(df0, *args[0])
     hist, macd, sign  = trade.MACD(df0, *args[1])
-    sar_shift_1 = np.append(sar[1:], 0)
+    sar_shift_1 = np.append(0, sar[:-1])
     
-    eva = np.nan_to_num(np.sign(sar_shift_1 - sar) + np.sign(hist)*2 + np.sign(sign)*3)
+    eva = np.nan_to_num(np.sign(sar - sar_shift_1) + np.sign(hist)*2 + np.sign(sign)*3)
     return eva
     
 def eva_KD_MATRIX(df0, *args):
@@ -121,7 +133,7 @@ def test(flag_type="SRSI_MACD_histSign"):
         eva = eva3_SRSI_MACD_histSign(df4, argSRSI, argMACD)
         use_eva_weight = deepcopy(eva3_weight)
     if flag_type=="SRSI_BB":
-        eva = eva_SRSI_BB(df4, argSRSI, argBB)
+        eva, eva4open = eva_SRSI_BB(df4, argSRSI, argBB)
         use_eva_weight = deepcopy(eva_weight)
     if flag_type=="SRSI_ATR":
         eva = eva_SRSI_ATR(df4, argSRSI, argATR)
@@ -140,7 +152,7 @@ def test(flag_type="SRSI_MACD_histSign"):
         use_eva_weight = deepcopy(eva_weight)
         
     #profit = evaluete.tatic_eva(source, eva=eva, eva_weight=use_eva_weight)
-    profit = evaluete.tatic_eva(df4, eva, use_eva_weight, 1, 1).do()
+    profit = evaluete.tatic_eva(df4, eva, eva4open, use_eva_weight, 1, [0]).do()
     
     pure_profit = evaluete.get_pure_profit(profit)
     ben_profit = evaluete.get_benchmark_profit(source, np.array(df4.close.shift(1)))
